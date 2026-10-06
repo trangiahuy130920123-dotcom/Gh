@@ -1,586 +1,364 @@
-import os
-import re
-import html
+import sys
+import subprocess
+
+# ---------------------------------------------------------
+# 0. TỰ ĐỘNG CÀI ĐẶT THƯ VIỆN NẾU THIẾU (KHÔNG CẦN REQUIREMENTS.TXT)
+# ---------------------------------------------------------
+REQUIRED_PACKAGES = {
+    "docx": "python-docx",
+    "pptx": "python-pptx",
+    "google.genai": "google-genai"
+}
+
+for module_name, pip_name in REQUIRED_PACKAGES.items():
+    try:
+        __import__(module_name)
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", pip_name])
+
+# Import các thư viện sau khi đã chắc chắn cài đặt đủ
+import io
 import json
+import os
 import streamlit as st
+from docx import Document
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from google import genai
 
-# Cần file requirements.txt (cùng thư mục) chứa: streamlit và openai>=1.60
-try:
-    from openai import OpenAI
-except ImportError:
-    st.error(
-        "Thiếu thư viện `openai`. Hãy thêm file `requirements.txt` "
-        "(gồm 2 dòng: `streamlit` và `openai>=1.60`) vào GitHub rồi Reboot app."
-    )
-    st.stop()
-
-# ============================================================
-# NOVA AI — REAL AI + PRESENTATION
-# One-file Streamlit app
-#
-# Cài:
-#   pip install streamlit openai
-#
-# Chạy:
-#   streamlit run nova_ai.py
-#
-# API key:
-#   Cách 1: nhập ở thanh bên
-#   Cách 2: đặt biến môi trường OPENAI_API_KEY
-# ============================================================
-
+# ---------------------------------------------------------
+# 1. CẤU HÌNH TRANG STREAMLIT
+# ---------------------------------------------------------
 st.set_page_config(
-    page_title="Nova AI",
-    page_icon="✦",
-    layout="wide",
-    initial_sidebar_state="expanded",
+    page_title="Nova AI - Trợ lý & Tạo Slide Thông Minh",
+    page_icon="✨",
+    layout="centered",
+    initial_sidebar_state="expanded"
 )
 
-# ============================================================
-# STYLE
-# ============================================================
-
+# ---------------------------------------------------------
+# 2. CSS TÙY CHỈNH GIAO DIỆN
+# ---------------------------------------------------------
 st.markdown("""
 <style>
-/* Không ẩn <header>: nó chứa nút mở thanh bên (nhập API key). */
-#MainMenu, footer {visibility:hidden;}
-header[data-testid="stHeader"] {background:transparent;}
-
-.stApp {
-    background:#f7f7f8;
-}
-
-.block-container {
-    max-width:1100px;
-    padding:28px 24px 110px;
-}
-
-.topbar {
-    display:flex;
-    align-items:center;
-    margin-bottom:38px;
-}
-
-.brand {
-    display:flex;
-    align-items:center;
-    gap:12px;
-}
-
-.logo {
-    width:42px;
-    height:42px;
-    border-radius:13px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    background:#111;
-    color:white;
-    font-size:21px;
-    font-weight:700;
-}
-
-.brand-name {
-    font-size:20px;
-    font-weight:700;
-    color:#111;
-}
-
-.badge {
-    font-size:12px;
-    padding:5px 9px;
-    border-radius:999px;
-    background:#ececf0;
-    color:#666;
-}
-
-.hero {
-    text-align:center;
-    margin:70px auto 35px;
-}
-
-.hero h1 {
-    font-size:46px;
-    line-height:1.05;
-    letter-spacing:-1.8px;
-    color:#111;
-    margin-bottom:13px;
-}
-
-.hero p {
-    color:#777;
-    font-size:17px;
-}
-
-.feature {
-    border:1px solid #e5e5e8;
-    border-radius:18px;
-    padding:18px;
-    background:white;
-    min-height:120px;
-}
-
-.card-title {
-    font-weight:700;
-    color:#222;
-    font-size:15px;
-    margin-bottom:8px;
-}
-
-.card-desc {
-    color:#777;
-    font-size:13px;
-    line-height:1.5;
-}
-
-/* Tin nhắn chat (st.chat_message) */
-[data-testid="stChatMessage"] {
-    background:white;
-    border:1px solid #e5e5e8;
-    border-radius:18px;
-    padding:14px 18px;
-    max-width:780px;
-    margin:10px auto;
-    overflow-wrap:anywhere;
-}
-
-[data-testid="stChatMessage"] p,
-[data-testid="stChatMessage"] li,
-[data-testid="stChatMessage"] span {
-    color:#222;
-}
-
-.slide-card {
-    background:white;
-    border:1px solid #e2e2e6;
-    border-radius:20px;
-    padding:28px;
-    margin:16px auto;
-    max-width:800px;
-    box-shadow:0 8px 28px rgba(0,0,0,.04);
-}
-
-.slide-number {
-    color:#888;
-    font-size:12px;
-    font-weight:700;
-    text-transform:uppercase;
-    letter-spacing:1px;
-    margin-bottom:8px;
-}
-
-.slide-title {
-    color:#111;
-    font-size:25px;
-    font-weight:750;
-    margin-bottom:12px;
-}
-
-.slide-body {
-    color:#444;
-    font-size:15px;
-    line-height:1.65;
-}
-
-@media (max-width:700px) {
+    header { visibility: hidden; }
+    footer { visibility: hidden; }
+    #MainMenu { visibility: hidden; }
+    
     .block-container {
-        padding:18px 14px 100px;
+        padding-top: 1.5rem !important;
+        padding-bottom: 4rem !important;
+        max-width: 720px;
     }
 
-    .hero {
-        margin-top:45px;
+    .hero-title {
+        text-align: center;
+        font-size: 2.2rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin-top: 10px;
+        margin-bottom: 8px;
+        line-height: 1.2;
+    }
+    
+    .hero-sub {
+        text-align: center;
+        color: #64748b;
+        font-size: 0.95rem;
+        margin-bottom: 1.8rem;
+        line-height: 1.5;
     }
 
-    .hero h1 {
-        font-size:34px;
+    div.stButton > button {
+        width: 100%;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        padding: 12px 16px;
+        background-color: #ffffff;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        transition: all 0.2s ease;
     }
-
-    .hero p {
-        font-size:15px;
+    
+    div.stButton > button:hover {
+        border-color: #6366f1;
+        background-color: #f8fafc;
     }
-
-    .slide-card {
-        padding:20px;
-    }
-}
 </style>
 """, unsafe_allow_html=True)
 
-# ============================================================
-# SESSION STATE
-# ============================================================
+# ---------------------------------------------------------
+# 3. PHẦN CÀI ĐẶT API KEY (SIDEBAR)
+# ---------------------------------------------------------
+with st.sidebar:
+    st.title("⚙️ Cấu hình AI")
+    
+    env_api_key = os.environ.get("GEMINI_API_KEY", "")
+    if "GEMINI_API_KEY" in st.secrets:
+        env_api_key = st.secrets["GEMINI_API_KEY"]
+
+    api_key_input = st.text_input(
+        "Nhập Google Gemini API Key:",
+        value=env_api_key,
+        type="password",
+        help="Lấy API Key miễn phí tại https://aistudio.google.com/"
+    )
+    
+    st.markdown("""
+    ---
+    💡 **Hướng dẫn lấy API Key miễn phí:**
+    1. Truy cập [Google AI Studio](https://aistudio.google.com/)
+    2. Đăng nhập Google & bấm **Get API key**
+    3. Dán mã Key vào ô trên để kích hoạt AI thật!
+    """)
+
+# Khởi tạo Gemini Client
+client = None
+if api_key_input.strip():
+    try:
+        client = genai.Client(api_key=api_key_input.strip())
+    except Exception as e:
+        st.sidebar.error(f"Lỗi khởi tạo API: {e}")
+
+# ---------------------------------------------------------
+# 4. HÀM TẠO FILE XUẤT (PPTX, DOCX, PYTHON)
+# ---------------------------------------------------------
+def generate_pptx(topic, slides_data):
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+
+    blank_layout = prs.slide_layouts[6]
+    title_slide = prs.slides.add_slide(blank_layout)
+    tx_box = title_slide.shapes.add_textbox(Inches(1), Inches(2.5), Inches(11.333), Inches(2))
+    tf = tx_box.text_frame
+    p = tf.paragraphs[0]
+    p.text = topic
+    p.font.bold = True
+    p.font.size = Pt(44)
+    p.font.name = "Arial"
+
+    for slide_item in slides_data:
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        title_shape = slide.shapes.title
+        title_shape.text = slide_item.get("title", "Slide")
+        
+        body_shape = slide.placeholders[1]
+        tf_body = body_shape.text_frame
+        tf_body.word_wrap = True
+        
+        bullets = slide_item.get("bullets", [])
+        for idx, bullet in enumerate(bullets):
+            if idx == 0:
+                p_item = tf_body.paragraphs[0]
+                p_item.text = bullet
+            else:
+                p_item = tf_body.add_paragraph()
+                p_item.text = bullet
+
+    buffer = io.BytesIO()
+    prs.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def generate_docx(topic, slides_data):
+    doc = Document()
+    doc.add_heading(topic, 0)
+
+    for slide in slides_data:
+        doc.add_heading(slide.get("title", "Slide"), level=1)
+        for bullet in slide.get("bullets", []):
+            doc.add_paragraph(bullet, style='List Bullet')
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def generate_python_script(topic, slides_data):
+    slides_json = json.dumps(slides_data, ensure_ascii=False, indent=4)
+    topic_json = json.dumps(topic, ensure_ascii=False)
+    
+    script_content = f"""# -*- coding: utf-8 -*-
+\"\"\"
+Nova AI Generated Presentation Script
+Topic: {topic}
+\"\"\"
+
+topic = {topic_json}
+slides = {slides_json}
+
+def main():
+    print(f"=== BÀI THUYẾT TRÌNH: {{topic}} ===")
+    for idx, slide in enumerate(slides, 1):
+        print(f"\\n[Slide {{idx}}] {{slide.get('title', '')}}")
+        for item in slide.get("bullets", []):
+            print(f"  - {{item}}")
+
+if __name__ == "__main__":
+    main()
+"""
+    return script_content.encode("utf-8")
+
+# ---------------------------------------------------------
+# 5. INITIALIZE SESSION STATE
+# ---------------------------------------------------------
+if "mode" not in st.session_state:
+    st.session_state.mode = "presentation"
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-if "started" not in st.session_state:
-    st.session_state.started = False
+if "generated_slides" not in st.session_state:
+    st.session_state.generated_slides = None
 
-if "presentation" not in st.session_state:
-    st.session_state.presentation = None
+if "current_topic" not in st.session_state:
+    st.session_state.current_topic = ""
 
-# ============================================================
-# OPENAI
-# ============================================================
+# ---------------------------------------------------------
+# 6. HEADER & ĐIỀU HƯỚNG
+# ---------------------------------------------------------
+st.markdown('<div class="hero-title">What can I help you create?</div>', unsafe_allow_html=True)
+st.markdown('<div class="hero-sub">Hỏi AI bất cứ điều gì — hoặc yêu cầu tạo bài trình bày và xuất file PowerPoint, Word, Python.</div>', unsafe_allow_html=True)
 
-with st.sidebar:
-    st.markdown("## ✦ Nova AI")
-    st.caption("Kết nối AI thật bằng OpenAI API")
+col1, col2 = st.columns(2)
 
-    # Thứ tự ưu tiên: biến môi trường -> st.secrets (Streamlit Cloud) -> nhập tay
-    env_key = os.getenv("OPENAI_API_KEY", "")
-    if not env_key:
-        try:
-            env_key = st.secrets.get("OPENAI_API_KEY", "")
-        except Exception:
-            env_key = ""
+with col1:
+    if st.button("💬 **Hỏi đáp AI**\n\nHỏi đáp trực tiếp cùng mô hình Gemini AI."):
+        st.session_state.mode = "chat"
 
-    api_key = st.text_input(
-        "OpenAI API Key",
-        value=env_key,
-        type="password",
-        placeholder="sk-...",
-        help="Key chỉ được dùng trong phiên Streamlit hiện tại.",
+with col2:
+    if st.button("📊 **Tạo trình bày**\n\nTạo slide thuyết trình AI & Xuất tệp PPTX/Word/Python."):
+        st.session_state.mode = "presentation"
+
+st.divider()
+
+# ---------------------------------------------------------
+# 7. CHẾ ĐỘ 1: TẠO SLIDE
+# ---------------------------------------------------------
+if st.session_state.mode == "presentation":
+    st.subheader("📊 Tạo bài thuyết trình thông minh bằng AI")
+    
+    topic_input = st.text_input(
+        "Chủ đề bài thuyết trình:", 
+        placeholder="Ví dụ: Ứng dụng AI trong giáo dục..."
     )
+    
+    num_slides = st.slider("Số lượng Slide:", min_value=3, max_value=10, value=4)
 
-    model = st.selectbox(
-        "Model",
-        [
-            "gpt-6-luna",
-            "gpt-6-sol",
-        ],
-        index=0,
-    )
-
-    custom_model = st.text_input(
-        "Hoặc nhập tên model khác",
-        placeholder="vd: gpt-5",
-        help="Nếu điền, sẽ dùng model này thay cho danh sách trên.",
-    )
-    if custom_model.strip():
-        model = custom_model.strip()
-
-    st.divider()
-    st.caption("Ví dụ:")
-    st.caption("• Logistics là gì?")
-    st.caption("• Giải thích AI cho học sinh lớp 10")
-    st.caption("• Tạo bài thuyết trình 8 slide về Logistics")
-
-def get_client():
-    if not api_key or not api_key.strip():
-        return None
-    return OpenAI(api_key=api_key.strip())
-
-def is_presentation_request(text):
-    """
-    Chỉ bật chế độ presentation khi người dùng thực sự yêu cầu.
-    Các câu hỏi thông thường sẽ đi vào chat bình thường.
-    """
-    t = text.lower().strip()
-
-    explicit_phrases = [
-        "tạo bài thuyết trình",
-        "tạo bài trình bày",
-        "làm bài thuyết trình",
-        "làm bài trình bày",
-        "tạo slide",
-        "tạo slides",
-        "làm slide",
-        "làm slides",
-        "tạo powerpoint",
-        "tạo powerpoint",
-        "làm powerpoint",
-        "presentation",
-        "presentation về",
-        "slides về",
-        "slide về",
-        "bài thuyết trình",
-    ]
-
-    return any(p in t for p in explicit_phrases)
-
-def ask_ai(user_prompt):
-    client = get_client()
-
-    if client is None:
-        return (
-            "⚠️ Chưa có OpenAI API Key.\n\n"
-            "Mở thanh bên trái → nhập API Key → gửi lại câu hỏi."
-        )
-
-    history = []
-    for role, content in st.session_state.messages[-12:]:
-        if role == "user":
-            history.append({"role": "user", "content": content})
-        elif role == "assistant":
-            history.append({"role": "assistant", "content": content})
-
-    # Tránh gửi lại câu user hiện tại 2 lần.
-    if history and history[-1]["role"] == "user" and history[-1]["content"] == user_prompt:
-        history = history[:-1]
-
-    system = """
-Bạn là Nova AI, một trợ lý AI thân thiện, thông minh và hữu ích.
-
-Quy tắc quan trọng:
-1. Nếu người dùng chỉ hỏi một câu hỏi bình thường, hãy TRẢ LỜI CÂU HỎI.
-2. Không tự biến câu trả lời thành bài thuyết trình.
-3. Chỉ khi người dùng rõ ràng yêu cầu tạo bài thuyết trình/slide/PowerPoint,
-   ứng dụng mới chuyển sang chế độ presentation.
-4. Trả lời bằng tiếng Việt nếu người dùng dùng tiếng Việt.
-5. Không nói rằng bạn là Gamma. Bạn chỉ cung cấp tính năng tạo nội dung
-   trình bày theo phong cách hiện đại, tương tự một công cụ presentation AI.
-6. Nếu câu hỏi không cần dài, trả lời ngắn gọn và dễ hiểu.
-"""
-
-    messages = [{"role": "developer", "content": system}]
-    messages.extend(history)
-    messages.append({"role": "user", "content": user_prompt})
-
-    try:
-        response = client.responses.create(
-            model=model,
-            input=messages,
-        )
-        return response.output_text.strip()
-    except Exception as e:
-        return (
-            "❌ Không gọi được AI.\n\n"
-            f"Chi tiết lỗi: `{type(e).__name__}: {e}`"
-        )
-
-def create_presentation(user_prompt):
-    client = get_client()
-
-    if client is None:
-        return None, (
-            "⚠️ Chưa có OpenAI API Key.\n\n"
-            "Mở thanh bên trái → nhập API Key → gửi lại yêu cầu."
-        )
-
-    presentation_instruction = f"""
-Người dùng yêu cầu tạo một bài thuyết trình.
-
-Yêu cầu gốc:
-{user_prompt}
-
-Hãy tạo nội dung bài thuyết trình hiện đại, rõ ràng, dễ trình bày.
-Nếu người dùng không ghi số slide thì tự chọn khoảng 7-10 slide.
-
-Chỉ trả về JSON hợp lệ, không markdown, theo đúng cấu trúc:
-{{
-  "title": "Tên bài",
-  "subtitle": "Mô tả ngắn",
-  "slides": [
-    {{
-      "title": "Tiêu đề slide",
-      "bullets": ["Ý 1", "Ý 2", "Ý 3"]
-    }}
-  ]
-}}
-
-Không thêm text ngoài JSON.
-"""
-
-    try:
-        response = client.responses.create(
-            model=model,
-            input=[
-                {
-                    "role": "developer",
-                    "content": (
-                        "Bạn là công cụ tạo presentation AI. "
-                        "JSON phải hợp lệ và nội dung phải bằng tiếng Việt."
-                    ),
-                },
-                {"role": "user", "content": presentation_instruction},
-            ],
-        )
-
-        raw = response.output_text.strip()
-
-        # Loại bỏ markdown fence nếu model vô tình thêm vào.
-        raw = re.sub(r"^```json\s*", "", raw, flags=re.I)
-        raw = re.sub(r"^```\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
-
-        data = json.loads(raw)
-
-        if not isinstance(data, dict) or not isinstance(data.get("slides"), list):
-            raise ValueError("AI trả về cấu trúc slide không hợp lệ.")
-
-        return data, None
-
-    except Exception as e:
-        return None, (
-            "❌ Không tạo được bài thuyết trình.\n\n"
-            f"Chi tiết lỗi: `{type(e).__name__}: {e}`"
-        )
-
-def render_ai_message(message):
-    # Markdown renderer của Streamlit đẹp hơn HTML thủ công và an toàn hơn.
-    st.markdown(message)
-
-# ============================================================
-# HEADER
-# ============================================================
-
-st.markdown("""
-<div class="topbar">
-    <div class="brand">
-        <div class="logo">✦</div>
-        <div class="brand-name">Nova AI</div>
-        <div class="badge">AI + Presentation</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ============================================================
-# HOME
-# ============================================================
-
-if not st.session_state.started:
-    st.markdown("""
-    <div class="hero">
-        <h1>What can I help you create?</h1>
-        <p>
-            Hỏi AI bất cứ điều gì — hoặc yêu cầu tạo bài trình bày khi bạn cần.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-# ============================================================
-# CHAT HISTORY
-# ============================================================
-
-for role, message in st.session_state.messages:
-    with st.chat_message(role):
-        st.markdown(message)  # không bật unsafe_allow_html nên an toàn
-
-# ============================================================
-# PRESENTATION RESULT
-# ============================================================
-
-if st.session_state.presentation:
-    data = st.session_state.presentation
-
-    st.markdown(
-        f"""
-        <div class="slide-card">
-            <div class="slide-number">Presentation</div>
-            <div class="slide-title">{html.escape(str(data.get("title", "Bài thuyết trình")))}</div>
-            <div class="slide-body">{html.escape(str(data.get("subtitle", "")))}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    for i, slide in enumerate(data.get("slides", []), start=1):
-        title = html.escape(str(slide.get("title", f"Slide {i}")))
-        bullets = slide.get("bullets", [])
-
-        bullet_html = "".join(
-            f"<li>{html.escape(str(item))}</li>"
-            for item in bullets
-        )
-
-        st.markdown(
-            f"""
-            <div class="slide-card">
-                <div class="slide-number">Slide {i}</div>
-                <div class="slide-title">{title}</div>
-                <div class="slide-body">
-                    <ul>{bullet_html}</ul>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-# ============================================================
-# INPUT
-# ============================================================
-
-prompt = st.chat_input(
-    "Hỏi một câu hỏi hoặc yêu cầu tạo bài trình bày..."
-)
-
-if prompt:
-    st.session_state.started = True
-    st.session_state.messages.append(("user", prompt))
-
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    # Chỉ kích hoạt presentation khi người dùng yêu cầu rõ ràng.
-    if is_presentation_request(prompt):
-        with st.spinner("✦ Nova AI đang tạo bài thuyết trình..."):
-            presentation, error = create_presentation(prompt)
-
-        if error:
-            st.session_state.messages.append(("assistant", error))
+    if st.button("🚀 Bắt đầu tạo Slide bằng AI", type="primary"):
+        if not topic_input.strip():
+            st.warning("Vui lòng nhập chủ đề bài thuyết trình.")
         else:
-            st.session_state.presentation = presentation
-            st.session_state.messages.append(
-                (
-                    "assistant",
-                    "Đã tạo xong bài thuyết trình. Mình hiển thị các slide bên dưới."
-                )
+            st.session_state.current_topic = topic_input.strip()
+            
+            if client:
+                with st.spinner("Gemini AI đang tư duy và lập dàn ý slide..."):
+                    try:
+                        prompt = f"""Bạn là một chuyên gia thuyết trình. Hãy tạo bài thuyết trình gồm {num_slides} slide cho chủ đề: "{topic_input}".
+Yêu cầu trả về đúng định dạng JSON dạng danh sách các object:
+[
+  {{"title": "1. Giới thiệu", "bullets": ["Ý 1", "Ý 2", "Ý 3"]}},
+  {{"title": "2. Thách thức", "bullets": ["Ý 1", "Ý 2", "Ý 3"]}}
+]
+Chỉ trả về chuỗi JSON thuần túy, không kèm mã codeblock hay văn bản khác.
+"""
+                        response = client.models.generate_content(
+                            model="gemini-2.5-flash",
+                            contents=prompt
+                        )
+                        
+                        raw_text = response.text.strip()
+                        if raw_text.startswith("```"):
+                            raw_text = raw_text.split("```")[1]
+                            if raw_text.startswith("json"):
+                                raw_text = raw_text[4:]
+                        raw_text = raw_text.strip()
+                        
+                        slides_json = json.loads(raw_text)
+                        st.session_state.generated_slides = slides_json
+                        st.success("🎉 Gemini AI đã khởi tạo thành công bài thuyết trình!")
+                    except Exception as e:
+                        st.error(f"Lỗi khi gọi Gemini AI: {e}")
+            else:
+                st.info("💡 Chưa nhập Gemini API Key. Hệ thống đang tạo bản mẫu thử nghiệm.")
+                st.session_state.generated_slides = [
+                    {"title": f"1. Giới thiệu về {topic_input}", "bullets": ["Khái niệm tổng quan.", "Xu hướng phát triển hiện tại.", "Tầm quan trọng của chủ đề."]},
+                    {"title": "2. Các giá trị cốt lõi", "bullets": ["Tăng hiệu suất công việc.", "Tối ưu hóa quy trình.", "Đổi mới sáng tạo."]},
+                    {"title": "3. Kết luận & Q&A", "bullets": ["Tóm tắt nội dung chính.", "Đề xuất hành động tiếp theo.", "Giải đáp thắc mắc."]}
+                ][:num_slides]
+
+    if st.session_state.generated_slides:
+        st.write("---")
+        st.markdown(f"### 📋 Xem trước nội dung: **{st.session_state.current_topic}**")
+
+        for idx, slide in enumerate(st.session_state.generated_slides, 1):
+            with st.expander(f"Slide {idx}: {slide.get('title', '')}", expanded=True):
+                for bullet in slide.get("bullets", []):
+                    st.write(f"• {bullet}")
+
+        st.markdown("### 📥 Xuất Tệp Trình Bày")
+        exp_col1, exp_col2, exp_col3 = st.columns(3)
+
+        with exp_col1:
+            pptx_file = generate_pptx(st.session_state.current_topic, st.session_state.generated_slides)
+            st.download_button(
+                label="📄 PowerPoint (.pptx)",
+                data=pptx_file,
+                file_name=f"{st.session_state.current_topic}.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                use_container_width=True
             )
-    else:
-        with st.spinner("✦ Nova AI đang suy nghĩ..."):
-            answer = ask_ai(prompt)
 
-        st.session_state.messages.append(("assistant", answer))
+        with exp_col2:
+            docx_file = generate_docx(st.session_state.current_topic, st.session_state.generated_slides)
+            st.download_button(
+                label="📝 Word (.docx)",
+                data=docx_file,
+                file_name=f"{st.session_state.current_topic}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                use_container_width=True
+            )
 
-    st.rerun()
+        with exp_col3:
+            py_file = generate_python_script(st.session_state.current_topic, st.session_state.generated_slides)
+            st.download_button(
+                label="🐍 Python Script (.py)",
+                data=py_file,
+                file_name=f"{st.session_state.current_topic}.py",
+                mime="text/x-python",
+                use_container_width=True
+            )
 
-# ============================================================
-# FEATURES
-# ============================================================
+# ---------------------------------------------------------
+# 8. CHẾ ĐỘ 2: HỎI ĐÁP CHAT
+# ---------------------------------------------------------
+elif st.session_state.mode == "chat":
+    st.subheader("💬 Trò chuyện trực tiếp cùng Gemini AI")
 
-if not st.session_state.messages:
-    st.markdown("<br>", unsafe_allow_html=True)
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-    col1, col2, col3 = st.columns(3)
+    if prompt := st.chat_input("Hỏi AI bất cứ điều gì..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    with col1:
-        st.markdown("""
-        <div class="feature">
-            <div class="card-title">💬 Hỏi đáp</div>
-            <div class="card-desc">
-                Hỏi câu hỏi bình thường và nhận câu trả lời từ AI thật.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        with st.chat_message("assistant"):
+            if client:
+                with st.spinner("Gemini AI đang trả lời..."):
+                    try:
+                        response = client.models.generate_content(
+                            model="gemini-2.5-flash",
+                            contents=prompt
+                        )
+                        reply_text = response.text
+                    except Exception as e:
+                        reply_text = f"Lỗi gọi AI: {e}"
+            else:
+                reply_text = "🤖 [Chế độ dùng thử] Bạn chưa nhập Gemini API Key ở menu góc trái. Hãy nhập API Key để trò chuyện trực tiếp cùng Gemini AI nhé!"
 
-    with col2:
-        st.markdown("""
-        <div class="feature">
-            <div class="card-title">📊 Tạo trình bày</div>
-            <div class="card-desc">
-                Chỉ tạo slide khi bạn thực sự yêu cầu bài thuyết trình.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col3:
-        st.markdown("""
-        <div class="feature">
-            <div class="card-title">✨ Một AI duy nhất</div>
-            <div class="card-desc">
-                Một giao diện cho hỏi đáp và tạo nội dung trình bày.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-# ============================================================
-# RESET
-# ============================================================
-
-if st.session_state.messages:
-    if st.button("🗑️ Xóa cuộc trò chuyện"):
-        st.session_state.messages = []
-        st.session_state.started = False
-        st.session_state.presentation = None
-        st.rerun()
+            st.markdown(reply_text)
+            st.session_state.messages.append({"role": "assistant", "content": reply_text})
