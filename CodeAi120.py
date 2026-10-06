@@ -1,22 +1,3 @@
-import sys
-import subprocess
-
-# ---------------------------------------------------------
-# 0. TỰ ĐỘNG CÀI ĐẶT THƯ VIỆN NẾU THIẾU (KHÔNG CẦN REQUIREMENTS.TXT)
-# ---------------------------------------------------------
-REQUIRED_PACKAGES = {
-    "docx": "python-docx",
-    "pptx": "python-pptx",
-    "google.genai": "google-genai"
-}
-
-for module_name, pip_name in REQUIRED_PACKAGES.items():
-    try:
-        __import__(module_name)
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pip_name])
-
-# Import các thư viện sau khi đã chắc chắn cài đặt đủ
 import io
 import json
 import os
